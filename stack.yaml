@@ -13,7 +13,7 @@ packages:
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps:
-- propellor-3.0.4
+  - propellor-2.17.2
 
 # Override default flag values for local packages and extra-deps
 flags: {}
