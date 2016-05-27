@@ -1,0 +1,8 @@
+*~
+*.o
+*.hi
+.#*
+.stack-work/
+\#*
+TAGS
+Setup.hs
