@@ -19,18 +19,19 @@ import           System.IO.Error              (isDoesNotExistError)
 main :: IO ()
 main = do
   [ numberOfHosts, userKey] <- getArgs
-  rights <$> createHostsOnDO (read userKey) (read numberOfHosts) >>=
-    mapM configureHost                                           >>=
-    mapM_ print
+  rights <$> createHostsOnDO (read userKey) (read numberOfHosts)
+--  >>= mapM configureHost
+  >>= mapM_ print
 
 
 createHostsOnDO :: Int -> Int -> IO [ Result Droplet ]
-createHostsOnDO userKey n = mapConcurrently (createHostOnDO userKey) [ 1 .. n ]
+createHostsOnDO userKey n = putStrLn ("Creating " ++ show n ++ " hosts") >> mapConcurrently (createHostOnDO userKey) [ 1 .. n ]
   where
     createHostOnDO userKey num = do
       authToken <- getAuthFromEnv
+      putStrLn $ "creating host " ++ show num ++ " with AUTH_KEY "++ show authToken
       let droplet = BoxConfiguration ("hosts" ++ show num) (RegionSlug "ams2") G1 defaultImage [userKey] False
-      runWreq $ pairEffectM (\ _ b -> return b) (mkDOClient $ Tool authToken Nothing False) (injr (createDroplet droplet) :: FreeT (Coproduct DO DropletCommands) (RESTT IO) (Result Droplet))
+      runWreq $ pairEffectM (\ _ b -> return b) (mkDOClient $ Tool Nothing authToken False) (injr (createDroplet droplet) :: FreeT (Coproduct DO DropletCommands) (RESTT IO) (Result Droplet))
 
     getAuthFromEnv :: IO (Maybe AuthToken)
     getAuthFromEnv = (Just `fmap` getEnv "AUTH_TOKEN") `catch` (\ (e :: IOError) -> if isDoesNotExistError e then return Nothing else throw e)

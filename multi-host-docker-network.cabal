@@ -20,6 +20,6 @@ executable multi-host-docker-network
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base >=4.8 && <4.9
-                     , propellor, hdo, async
+                     , async, comonad, free, hdo, propellor
   hs-source-dirs:      src
   default-language:    Haskell2010
