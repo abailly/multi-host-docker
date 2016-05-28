@@ -9,6 +9,7 @@ import           Control.Monad.Trans.Free
 import           Data.Either
 import           Data.Functor.Coproduct
 import           Data.IP
+import           Data.List                    (intercalate)
 import           Data.Maybe
 import           Network.DO.Commands
 import           Network.DO.Droplets.Commands
@@ -23,6 +24,7 @@ import qualified Propellor.Docker             as Docker
 import qualified Propellor.Locale             as Locale
 import qualified Propellor.Property.Cmd       as Cmd
 import           Propellor.Spin
+import           Propellor.Utilities          (shellWrap)
 import           System.Environment
 import           System.Exit
 import           System.IO.Error              (isDoesNotExistError)
@@ -51,11 +53,17 @@ createHostsOnDO userKey n = putStrLn ("Creating " ++ show n ++ " hosts") >> mapC
 configureHosts :: [Droplet] -> IO [Droplet]
 configureHosts droplets = do
   mapM (acceptHostsKey . publicIP) droplets
-  runPropellor $ configured droplets
+  mapM runPropellor $ configured droplets
   return droplets
   where
-    configured  = map (toConfigure . show) . catMaybes . map publicIP
-    runPropellor = mapM (uncurry $ spin Nothing)
+    configured  = map show . catMaybes . map publicIP
+    runRemotePropellCmd h = shellWrap $ intercalate " && " [ "chmod +x propell"
+                                                           , "./propell " ++ h
+                                                           ]
+    runPropellor h = do
+      boolSystem "scp" (map Param $ [ "propell", "root@" ++ h ++ ":" ])
+      boolSystem "ssh" (map Param $ [ "root@" ++ h, runRemotePropellCmd h ])
+
     toConfigure ip = (ip, host ip & multiNetworkDockerHost ip)
 
 
@@ -63,8 +71,8 @@ configureHosts droplets = do
 acceptHostsKey :: Maybe IP -> IO ()
 acceptHostsKey (Just ip) =
   mapM_ callCommand [ "ssh-keygen -R " ++ show ip
-                    , "cp ~/.ssh/known_hosts ~/.ssh/known_hosts.old"
-                    , "ssh-keyscan " ++  show ip ++ " > ~/.ssh/known_hosts"
+                    , "cp ~/.ssh/known_hosts ~/.ssh/known_hosts.save"
+                    , "ssh-keyscan " ++  show ip ++ " >> ~/.ssh/known_hosts"
                     ]
 acceptHostsKey (Nothing) = return ()
 

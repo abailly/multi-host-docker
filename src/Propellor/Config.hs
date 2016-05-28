@@ -28,7 +28,6 @@ import           System.Process               (callCommand)
 
 multiNetworkDockerHost :: String -> Property HasInfo
 multiNetworkDockerHost ip = propertyList "configuring host for multi-network docker" $ props
-  & fixGitUserFor root
   & Locale.setDefaultLocale Locale.en_us_UTF_8
   & Docker.installLatestDocker
 
