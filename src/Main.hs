@@ -19,9 +19,9 @@ import           Network.DO.Types
 import           Network.REST
 import           Propellor                    hiding (Result)
 import qualified Propellor.Docker             as Docker
-import           Propellor.Engine
 import qualified Propellor.Locale             as Locale
 import qualified Propellor.Property.Cmd       as Cmd
+import           Propellor.Spin
 import           System.Environment
 import           System.Exit
 import           System.IO.Error              (isDoesNotExistError)
@@ -52,8 +52,8 @@ configureHosts droplets = do
   return droplets
   where
     configured  = map toConfigure . catMaybes . map publicIP
-    runPropellor = withArgs [] . defaultMain
-    toConfigure ip = host (show ip) & multiNetworkDockerHost ip
+    runPropellor = mapM (uncurry $ spin Nothing)
+    toConfigure ip = (show ip, host (show ip) & multiNetworkDockerHost ip)
 
 multiNetworkDockerHost :: IP -> Property HasInfo
 multiNetworkDockerHost ip = propertyList "configuring host for multi-network docker" $ props
