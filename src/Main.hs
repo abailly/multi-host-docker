@@ -25,6 +25,7 @@ import           Propellor.Spin
 import           System.Environment
 import           System.Exit
 import           System.IO.Error              (isDoesNotExistError)
+import           System.Process               (callCommand)
 
 main :: IO ()
 main = do
@@ -48,12 +49,23 @@ createHostsOnDO userKey n = putStrLn ("Creating " ++ show n ++ " hosts") >> mapC
 
 configureHosts :: [Droplet] -> IO [Droplet]
 configureHosts droplets = do
+  mapM (acceptHostsKey . publicIP) droplets
   runPropellor $ configured droplets
   return droplets
   where
     configured  = map toConfigure . catMaybes . map publicIP
     runPropellor = mapM (uncurry $ spin Nothing)
     toConfigure ip = (show ip, host (show ip) & multiNetworkDockerHost ip)
+
+
+-- | The host should have been created
+acceptHostsKey :: Maybe IP -> IO ()
+acceptHostsKey (Just ip) =
+  mapM_ callCommand [ "ssh-keygen -R " ++ show ip
+                    , "cp ~/.ssh/known_hosts ~/.ssh/known_hosts.old"
+                    , "ssh-keyscan " ++  show ip ++ " > ~/.ssh/known_hosts"
+                    ]
+acceptHostsKey (Nothing) = return ()
 
 multiNetworkDockerHost :: IP -> Property HasInfo
 multiNetworkDockerHost ip = propertyList "configuring host for multi-network docker" $ props
