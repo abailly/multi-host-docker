@@ -1,6 +1,5 @@
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE ViewPatterns        #-}
 module Main where
 
 import           Control.Concurrent.Async
@@ -10,6 +9,7 @@ import           Control.Monad.Trans.Free
 import           Data.Either
 import           Data.Functor.Coproduct
 import           Data.IP
+import           Data.Maybe
 import           Network.DO.Commands
 import           Network.DO.Droplets.Commands
 import           Network.DO.Droplets.Utils
@@ -32,7 +32,7 @@ main = do
   hosts <- createHostsOnDO (read userKey) (read numberOfHosts)
   if not $ null $ lefts hosts
     then putStrLn ("Hosts creation failed: " ++ show hosts ) >> exitWith (ExitFailure 1)
-    else mapConcurrently configureHost (rights hosts)  >>= mapM_ print
+    else configureHosts (rights hosts)  >>= mapM_ print
 
 createHostsOnDO :: Int -> Int -> IO [ Result Droplet ]
 createHostsOnDO userKey n = putStrLn ("Creating " ++ show n ++ " hosts") >> mapConcurrently (createHostOnDO userKey) [ 1 .. n ]
@@ -46,17 +46,17 @@ createHostsOnDO userKey n = putStrLn ("Creating " ++ show n ++ " hosts") >> mapC
     getAuthFromEnv :: IO (Maybe AuthToken)
     getAuthFromEnv = (Just `fmap` getEnv "AUTH_TOKEN") `catch` (\ (e :: IOError) -> if isDoesNotExistError e then return Nothing else throw e)
 
-configureHost :: Droplet -> IO Droplet
-configureHost d@(publicIP -> Just ip) = do
-  let toConfigure = host (show ip) & multiNetworkDockerHost ip
-  ret <- runPropellor toConfigure  $ ensureProperties (map ignoreInfo (hostProperties toConfigure))
-  case ret of
-    FailedChange -> fail $ "Failed to configure Droplet " ++ name d ++ "/" ++ show (dropletId d)
-    _            -> return d
-configureHost d@(publicIP -> Nothing) = fail $ "Droplet " ++ name d ++ "/" ++ show (dropletId d) ++ " has no public IP"
+configureHosts :: [Droplet] -> IO [Droplet]
+configureHosts droplets = do
+  runPropellor $ configured droplets
+  return droplets
+  where
+    configured  = map toConfigure . catMaybes . map publicIP
+    runPropellor = withArgs [] . defaultMain
+    toConfigure ip = host (show ip) & multiNetworkDockerHost ip
 
 multiNetworkDockerHost :: IP -> Property HasInfo
-multiNetworkDockerHost ip = propertyList "creating lending.capital-match.com configuration" $ props
+multiNetworkDockerHost ip = propertyList "configuring host for multi-network docker" $ props
   & fixGitUserFor root
   & Locale.setDefaultLocale Locale.en_us_UTF_8
   & Docker.installLatestDocker

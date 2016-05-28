@@ -1,0 +1,3 @@
+[submodule "propellor"]
+	path = propellor
+	url = git@github.com:abailly/propellor.git
