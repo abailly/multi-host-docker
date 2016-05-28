@@ -18,6 +18,7 @@ import           Network.DO.Pairing
 import           Network.DO.Types
 import           Network.REST
 import           Propellor                    hiding (Result)
+import           Propellor.Config
 import qualified Propellor.Docker             as Docker
 import qualified Propellor.Locale             as Locale
 import qualified Propellor.Property.Cmd       as Cmd
@@ -53,9 +54,9 @@ configureHosts droplets = do
   runPropellor $ configured droplets
   return droplets
   where
-    configured  = map toConfigure . catMaybes . map publicIP
+    configured  = map (toConfigure . show) . catMaybes . map publicIP
     runPropellor = mapM (uncurry $ spin Nothing)
-    toConfigure ip = (show ip, host (show ip) & multiNetworkDockerHost ip)
+    toConfigure ip = (ip, host ip & multiNetworkDockerHost ip)
 
 
 -- | The host should have been created
@@ -66,16 +67,4 @@ acceptHostsKey (Just ip) =
                     , "ssh-keyscan " ++  show ip ++ " > ~/.ssh/known_hosts"
                     ]
 acceptHostsKey (Nothing) = return ()
-
-multiNetworkDockerHost :: IP -> Property HasInfo
-multiNetworkDockerHost ip = propertyList "configuring host for multi-network docker" $ props
-  & fixGitUserFor root
-  & Locale.setDefaultLocale Locale.en_us_UTF_8
-  & Docker.installLatestDocker
-
-fixGitUserFor :: User -> Property NoInfo
-fixGitUserFor user =  Cmd.userScriptProperty user ["git config --global user.name root"
-                                                  ,"git config --global user.email root@localhost"] `assume` MadeChange
-root :: User
-root = User "root"
 

@@ -23,3 +23,12 @@ executable multi-host-docker-network
                      , async, comonad, free, hdo, iproute, process, propellor, unix, unix-compat
   hs-source-dirs:      src
   default-language:    Haskell2010
+
+executable propell
+  main-is:             Propell.hs
+  -- other-modules:       
+  -- other-extensions:    
+  build-depends:       base >=4.8 && <4.9
+                     , async, comonad, free, hdo, iproute, process, propellor, unix, unix-compat
+  hs-source-dirs:      src
+  default-language:    Haskell2010  
