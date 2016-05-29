@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Main where
@@ -20,6 +21,7 @@ import           Network.DO.Net
 import           Network.DO.Pairing
 import           Network.DO.Types
 import           Network.REST
+import           Options.Generic
 import           Propellor                    hiding (Result, createProcess)
 import           Propellor.Config
 import qualified Propellor.Docker             as Docker
@@ -35,6 +37,20 @@ import           System.IO.Error              (isDoesNotExistError)
 import           System.Process               (CreateProcess (..),
                                                StdStream (..), callCommand,
                                                createProcess, proc, readProcess)
+
+data Actions = CreateDroplets { numberOfDroplets :: Int
+                              , compilePropellor :: Bool
+                              , deployPropellor  :: Bool
+                              }
+             | RunPropellor { executable :: String
+                            , hostname   :: HostName
+                            }
+             | BuildPropellor { sourceDir  :: FilePath
+                              , targetName :: String
+                              }
+             deriving (Show, Generic)
+
+instance ParseRecord Actions
 
 main :: IO ()
 main = do
