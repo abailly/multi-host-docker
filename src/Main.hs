@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Main where
@@ -39,8 +40,11 @@ import           System.Process               (CreateProcess (..),
                                                createProcess, proc, readProcess)
 
 data Actions = CreateDroplets { numberOfDroplets :: Int
+                              , userKey          :: Int
                               , compilePropellor :: Bool
                               , deployPropellor  :: Bool
+                              , executable       :: String
+                              , sourceDir        :: FilePath
                               }
              | RunPropellor { executable :: String
                             , hostname   :: HostName
@@ -54,11 +58,19 @@ instance ParseRecord Actions
 
 main :: IO ()
 main = do
-  [ numberOfHosts, userKey] <- getArgs
-  hosts <- createHostsOnDO (read userKey) (read numberOfHosts)
-  if not $ null $ lefts hosts
-    then putStrLn ("Hosts creation failed: " ++ show hosts ) >> exitWith (ExitFailure 1)
-    else configureHosts (rights hosts)  >>= mapM_ print
+  action <- getRecord "Multi-host docker networking"
+  go action
+
+  where
+    go (CreateDroplets num userKey compile deploy exe srcDir) = do
+      when compile $ void $ buildInDocker srcDir exe
+      hosts <- createHostsOnDO userKey num
+      when (not $ null $ lefts hosts) $ putStrLn ("Hosts creation failed: " ++ show hosts ) >> exitWith (ExitFailure 1)
+      when deploy $ void $ configureHosts (rights hosts)
+
+      print hosts
+    go (RunPropellor exe h) = void $ runPropellor exe h
+    go (BuildPropellor src tgt) = void $ buildInDocker src tgt
 
 createHostsOnDO :: Int -> Int -> IO [ Result Droplet ]
 createHostsOnDO userKey n = do
