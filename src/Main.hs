@@ -2,6 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
+import           Control.Concurrent           (threadDelay)
 import           Control.Concurrent.Async
 import           Control.Exception            (catch, throw)
 import           Control.Monad
@@ -44,12 +45,14 @@ main = do
     else configureHosts (rights hosts)  >>= mapM_ print
 
 createHostsOnDO :: Int -> Int -> IO [ Result Droplet ]
-createHostsOnDO userKey n = putStrLn ("Creating " ++ show n ++ " hosts") >> mapConcurrently (createHostOnDO userKey) [ 1 .. n ]
+createHostsOnDO userKey n = do
+  putStrLn ("Creating " ++ show n ++ " hosts")
+  mapConcurrently (createHostOnDO userKey) [ 1 .. n ]
   where
     createHostOnDO userKey num = do
       authToken <- getAuthFromEnv
       putStrLn $ "creating host " ++ show num ++ " with AUTH_KEY "++ show authToken
-      let droplet = BoxConfiguration ("hosts" ++ show num) (RegionSlug "ams2") G1 defaultImage [userKey] False
+      let droplet = BoxConfiguration ("host" ++ show num) (RegionSlug "ams2") G1 defaultImage [userKey] False
       runWreq $ pairEffectM (\ _ b -> return b) (mkDOClient $ Tool Nothing authToken False) (injr (createDroplet droplet) :: FreeT (Coproduct DO DropletCommands) (RESTT IO) (Result Droplet))
 
     getAuthFromEnv :: IO (Maybe AuthToken)
@@ -60,8 +63,28 @@ configureHosts droplets = do
   mapM (runPropellor "propell") $ configured droplets
   return droplets
   where
-    configured  = map show . catMaybes . map publicIP
-    toConfigure ip = (ip, host ip & multiNetworkDockerHost ip)
+    configured = map show . catMaybes . map publicIP
+
+runPropellor :: String -> HostName -> IO Bool
+runPropellor configExe h = do
+  canSsh <- trySsh h 3
+  when (not canSsh) $ fail $ "cannot ssh into host " ++ h
+  copied <- boolSystem "scp" (map Param $ [ "-v", "-o","StrictHostKeyChecking=no", configExe, "root@" ++ h ++ ":" ])
+  if copied
+    then boolSystem "ssh" (map Param $ [  "-v", "-o","StrictHostKeyChecking=no", "root@" ++ h, runRemotePropellCmd h ])
+    else fail $ "failed to copy " ++ configExe ++ " to remote host " ++ h
+    where
+      runRemotePropellCmd h = shellWrap $ intercalate " && " [ "chmod +x " ++ configExe
+                                                             , "./" ++ configExe ++ " " ++ h
+                                                             ]
+      trySsh :: HostName -> Int -> IO Bool
+      trySsh h n = do
+        res <- boolSystem "ssh" (map Param $ [  "-v", "-o","StrictHostKeyChecking=no", "root@" ++ h, "echo hello" ])
+        if (not res && n > 0)
+          then do
+            threadDelay 100000
+            trySsh h (n - 1)
+          else return res
 
 copy :: Handle -> Handle -> IO ()
 copy hIn hOut = do
@@ -93,15 +116,4 @@ exportBinary targetName = do
   withBinaryFile targetName WriteMode $ \ hDst -> copy hout hDst
   void $ waitForProcess phdl
   return targetName
-
-runPropellor :: String -> HostName -> IO Bool
-runPropellor configExe h = do
-  copied <- boolSystem "scp" (map Param $ [ "-o","StrictHostKeyChecking=no", configExe, "root@" ++ h ++ ":" ])
-  if copied
-    then boolSystem "ssh" (map Param $ [ "-o","StrictHostKeyChecking=no", "root@" ++ h, runRemotePropellCmd h ])
-    else fail $ "failed to copy " ++ configExe ++ " to remote host " ++ h
-    where
-      runRemotePropellCmd h = shellWrap $ intercalate " && " [ "chmod +x " ++ configExe
-                                                             , "./" ++ configExe ++ " " ++ h
-                                                             ]
 
