@@ -31,8 +31,5 @@ multiNetworkDockerHost ip = propertyList "configuring host for multi-network doc
   & Locale.setDefaultLocale Locale.en_us_UTF_8
   & Docker.installLatestDocker
 
-fixGitUserFor :: User -> Property NoInfo
-fixGitUserFor user =  Cmd.userScriptProperty user ["git config --global user.name root"
-                                                  ,"git config --global user.email root@localhost"] `assume` MadeChange
 root :: User
 root = User "root"
