@@ -69,9 +69,9 @@ runPropellor :: String -> HostName -> IO Bool
 runPropellor configExe h = do
   canSsh <- trySsh h 3
   when (not canSsh) $ fail $ "cannot ssh into host " ++ h
-  copied <- boolSystem "scp" (map Param $ [ "-v", "-o","StrictHostKeyChecking=no", configExe, "root@" ++ h ++ ":" ])
+  copied <- boolSystem "scp" (map Param $ [ "-o","StrictHostKeyChecking=no", configExe, "root@" ++ h ++ ":" ])
   if copied
-    then boolSystem "ssh" (map Param $ [  "-v", "-o","StrictHostKeyChecking=no", "root@" ++ h, runRemotePropellCmd h ])
+    then boolSystem "ssh" (map Param $ [  "-o","StrictHostKeyChecking=no", "root@" ++ h, runRemotePropellCmd h ])
     else fail $ "failed to copy " ++ configExe ++ " to remote host " ++ h
     where
       runRemotePropellCmd h = shellWrap $ intercalate " && " [ "chmod +x " ++ configExe
@@ -79,10 +79,10 @@ runPropellor configExe h = do
                                                              ]
       trySsh :: HostName -> Int -> IO Bool
       trySsh h n = do
-        res <- boolSystem "ssh" (map Param $ [  "-v", "-o","StrictHostKeyChecking=no", "root@" ++ h, "echo hello" ])
+        res <- boolSystem "ssh" (map Param $ [ "-o","StrictHostKeyChecking=no", "root@" ++ h, "echo hello" ])
         if (not res && n > 0)
           then do
-            threadDelay 100000
+            threadDelay 1000000
             trySsh h (n - 1)
           else return res
 
