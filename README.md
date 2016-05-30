@@ -84,5 +84,52 @@ It is also possible to run propellor build and run separately:
 * `multi-host-docker-network buildpropellor`: Build a `propell` executable by running `stack build` inside current directory. Can be customized if one needs to build something different, 
 * `multi-host-docker-network runpropellor --allHosts 1.2.3.4 --allHosts 2.3.4.5 --allHosts 3.4.5.6 --hostname 2.3.4.5`: run propellor configuration on given remote `hostname` passing the addresses/names of all the other hosts in the "cluster". It is important to pass exactly the same list to all configured hosts as this is used to define the GRE interfaces names in a way that matches pair of hosts.
 
+## Testing
+
+The configured hosts should be rebooted before testing configuration in order to ensure interfaces are correctly setup. Alternatively, one needs to do the following after propellor configuration has run:
+
+* `service docker stop` to stop running docker: We will change its configuration and interface,
+* `ip link delete docker0`: remove existing `docker0` interface created initially when we first installed docker,
+* `ifup br0`: Start OVS bridge interface and bind GRE ports,
+* `ifup docker0`: Start new docker interface,
+* `service docker start`: Start docker.
 
 
+Then log into on one of the remote hosts:
+
+```
+# docker run -ti ubuntu:trusty bash
+root@e17699213c7e:/# ip addr eth0
+7: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1462 qdisc noqueue state UP group default 
+    link/ether 02:42:ac:11:02:00 brd ff:ff:ff:ff:ff:ff
+    inet 172.17.2.0/16 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::42:acff:fe11:200/64 scope link 
+    valid_lft forever preferred_lft forever
+```
+
+log into another remote host:
+
+```
+# docker run -ti ubuntu:trusty bash
+root@23a4e9cbab72:/# ip addr
+7: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1462 qdisc noqueue state UP group default 
+    link/ether 02:42:ac:11:03:00 brd ff:ff:ff:ff:ff:ff
+    inet 172.17.3.0/16 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::42:acff:fe11:300/64 scope link 
+       valid_lft forever preferred_lft forever
+root@23a4e9cbab72:/# ping 172.17.2.0
+PING 172.17.2.0 (172.17.2.0) 56(84) bytes of data.
+64 bytes from 172.17.2.0: icmp_seq=1 ttl=64 time=0.569 ms
+64 bytes from 172.17.2.0: icmp_seq=2 ttl=64 time=0.485 ms
+```
+
+and in the first host:
+
+```
+root@e17699213c7e:/# ping 172.17.3.0
+PING 172.17.3.0 (172.17.3.0) 56(84) bytes of data.
+64 bytes from 172.17.3.0: icmp_seq=1 ttl=64 time=2.26 ms
+64 bytes from 172.17.3.0: icmp_seq=2 ttl=64 time=0.681 ms
+```
