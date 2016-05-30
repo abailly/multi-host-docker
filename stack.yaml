@@ -6,17 +6,12 @@ resolver: lts-5.17
 # Local packages, usually specified by relative directory name
 packages:
 - '.'
-# pending update to hackage indices
-- location:
-    git: git@github.com:capital-match/hdo
-    commit: dfd7f9b00611b3e87a2e7a90362b2d59a5ba136b
-# custom propellor to expose internal functions for spinning of hosts
 - 'propellor' 
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps:
   - optparse-generic-1.1.0
-
+  - hdo-0.1
 
 # Override default flag values for local packages and extra-deps
 flags: {}
