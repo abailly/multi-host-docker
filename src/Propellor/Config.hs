@@ -56,44 +56,61 @@ installOpenVSwitch =
 
 createInterfaces :: [String] -> String -> Property NoInfo
 createInterfaces allIps myIp = propertyList "configuring network interfaces"
-  [ createOVSBridgeInterface "br0" (length allIps - 1)
+  [ createOVSBridgeInterface "br0" allIps myIp
   , createGREInterfaces "br0" allIps myIp
   , createDockerInterface "br0" "docker0" allIps myIp
   ]
 
-createOVSBridgeInterface :: String -> Int -> Property NoInfo
-createOVSBridgeInterface ifaceName numberOfGREs = hasInterfaceFile `describe` description `requires` Net.interfacesDEnabled
+createOVSBridgeInterface :: String -> [ String ] -> String -> Property NoInfo
+createOVSBridgeInterface ifaceName allIps myIp = hasInterfaceFile `describe` description `requires` Net.interfacesDEnabled
   where
-    description = "setup interface " ++ ifaceName ++ " with " ++ show numberOfGREs ++ " tunnels"
+    description = "setup interface " ++ ifaceName ++ " with " ++ show (length $ listOfGREs) ++ " tunnels"
 
     interfaceFile = Net.interfaceDFile ifaceName
 
-    listOfGREs = concat $ intersperse " " $ map (\ i -> "gre" ++ show i) [1 .. numberOfGREs ]
+    listOfGREs = map snd $ greInterfaces allIps myIp
 
     hasInterfaceFile = interfaceFile `File.hasContent` [ "auto " ++ ifaceName ++  "=" ++ ifaceName
                                                        , "allow-ovs "++ ifaceName
                                                        , "iface " ++ ifaceName ++ " inet manual"
                                                        , "    ovs_type OVSBridge"
-                                                       , "    ovs_ports " ++ listOfGREs
+                                                       , "    ovs_ports " ++ concat (intersperse " " listOfGREs)
                                                        , "    ovs_extra set bridge ${IFACE} stp_enable=true"
                                                        , "    mtu 1462"
                                                        ]
 
 createGREInterfaces :: String -> [ String ] -> String -> Property NoInfo
-createGREInterfaces bridgeIfaceName allIps myIp = propertyList ("Configuring " ++ show numberOfIfaces ++ " GRE interfaces") $
-  map (uncurry createGREInterface) $ filter ((/= myIp) . fst) (zip allIps [1 .. numberOfIfaces ])
+createGREInterfaces bridgeIfaceName allIps myIp = propertyList ("Configuring " ++ show (length allIps) ++ " GRE interfaces") $
+  map (uncurry createGREInterface) (greInterfaces allIps myIp)
   where
-    numberOfIfaces = length allIps
-    createGREInterface ip num = interfaceFile `File.hasContent` [ "allow-"++ bridgeIfaceName ++ " " ++ greName
+    createGREInterface ip greName = interfaceFile `File.hasContent` [ "allow-"++ bridgeIfaceName ++ " " ++ greName
                                                                 , "iface " ++ greName ++ " inet manual"
                                                                 , "    ovs_type OVSPort"
                                                                 , "    ovs_bridge " ++ bridgeIfaceName
                                                                 , "    ovs_extra set interface ${IFACE} type=gre options:remote_ip=" ++ ip
                                                                 ]
       where
-        greName = "gre" ++ show num
         interfaceFile = Net.interfaceDFile greName
 
+
+-- | Compute the list of interfaces to setup on `myIp` host given all other hosts' IPs
+--
+-- GRE interfaces name should be consistent between pair of hosts in order to be routed
+-- properly, hence assignment should be consistent. We assign a number to all pairs of hosts and
+-- filter on those whose source is `myIp`.
+greInterfaces :: [ String ] -> String -> [ (String, String) ]
+greInterfaces allIps myIp = map keepToAndNumber $ filter (linksToMyIp . snd) allPossibleInterfaces
+  where
+    greName = ("gre" ++) . show
+
+    linksToMyIp (f,t) | f == myIp && t == myIp = False
+                      | f == myIp || t == myIp = True
+                      | otherwise           = False
+    keepToAndNumber (num, (f,t)) | f == myIp = (t, greName num)
+                                 | t == myIp = (f, greName num)
+                                 | otherwise = Prelude.error $ "incorrect value " ++ show (f,t) ++ ": expected pair of IPs with at least one equal to " ++ myIp
+    allPossibleInterfaces = zip [ 1 .. ] allPairs
+    allPairs = [ (from, to) | from <- allIps, to <- Prelude.tail $ dropWhile (/= from) allIps ]
 
 createDockerInterface :: String -> String -> [ String ] -> String -> Property NoInfo
 createDockerInterface bridgeIfaceName ifaceName allIps myIp =
