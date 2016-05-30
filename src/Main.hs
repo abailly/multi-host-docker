@@ -108,13 +108,13 @@ runPropellor allHosts (Just configExe) h = do
   callProcess "ssh" [ "-o","StrictHostKeyChecking=no", "root@" ++ h, runRemotePropellCmd h ]
     where
       runRemotePropellCmd h = shellWrap $ intercalate " && " [ "chmod +x " ++ configExe
-                                                             , "./" ++ configExe ++ " " ++ h ++ " " ++ otherHosts
+                                                             , "./" ++ configExe ++ " " ++ h ++ " " ++ allIps
                                                              ]
-      otherHosts = concat $ intersperse " " (allHosts \\ [h])
+      allIps = concat $ intersperse " " allHosts
 
       trySsh :: HostName -> Int -> IO Bool
       trySsh h n = do
-        res <- boolSystem "ssh" (map Param $ [ "-o","StrictHostKeyChecking=no", "root@" ++ h, "echo hello" ])
+        res <- boolSystem "ssh" (map Param $ [ "-o","StrictHostKeyChecking=no", "root@" ++ h, "/bin/true" ])
         if (not res && n > 0)
           then do
             threadDelay 1000000

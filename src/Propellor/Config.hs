@@ -8,7 +8,7 @@ import           Control.Monad.Trans.Free
 import           Data.Either
 import           Data.Functor.Coproduct
 import           Data.IP
-import           Data.List                    (intersperse, (\\))
+import           Data.List                    (elemIndex, intersperse, (\\))
 import           Data.Maybe
 import           Network.DO.Commands
 import           Network.DO.Droplets.Commands
@@ -34,8 +34,8 @@ import           System.Process               (callCommand)
 
 -- | Configure a single host to run docker with a custom network configuration using GRE tunnels
 -- and openvswitch to route packets across nodes
-multiNetworkDockerHost :: [String] -> Property HasInfo
-multiNetworkDockerHost allIps = propertyList ("configuring host " ++ myIp ++ " for multi-network docker") $ props
+multiNetworkDockerHost :: [String] -> String -> Property HasInfo
+multiNetworkDockerHost allIps myIp = propertyList ("configuring host " ++ myIp ++ " for multi-network docker") $ props
   & Locale.setDefaultLocale Locale.en_us_UTF_8
   & Docker.installLatestDocker
   & Apt.installed [ "bridge-utils" ]
@@ -43,14 +43,13 @@ multiNetworkDockerHost allIps = propertyList ("configuring host " ++ myIp ++ " f
   & installOpenVSwitch
   -- Creates network interfaces
   & createInterfaces allIps myIp
-  where
-    myIp = head allIps
+  & configureDockerDefaults allIps myIp "docker0"
 
 installOpenVSwitch :: Property NoInfo
 installOpenVSwitch =
   check (and <$> mapM doesFileExist debs)
   (runDpkg debs)
-  `describe` "installing openvswitch"
+  `describe` "installing openvswitch from local packages"
   where
     debs = [ "-i", "openvswitch-common_2.3.1-1_amd64.deb",  "openvswitch-switch_2.3.1-1_amd64.deb" ]
     runDpkg debs = cmdPropertyEnv "dpkg" debs noninteractiveEnv
@@ -59,7 +58,7 @@ createInterfaces :: [String] -> String -> Property NoInfo
 createInterfaces allIps myIp = propertyList "configuring network interfaces"
   [ createOVSBridgeInterface "br0" (length allIps - 1)
   , createGREInterfaces "br0" (allIps \\ [ myIp])
-  , createDockerInterface "docker0" allIps myIp
+  , createDockerInterface "br0" "docker0" allIps myIp
   ]
 
 createOVSBridgeInterface :: String -> Int -> Property NoInfo
@@ -96,8 +95,43 @@ createGREInterfaces bridgeIfaceName otherIps = propertyList ("Configuring " ++ s
         interfaceFile = Net.interfaceDFile greName
 
 
-createDockerInterface :: String -> [ String ] -> String -> Property NoInfo
-createDockerInterface ifaceName allIps myIp = undefined
+createDockerInterface :: String -> String -> [ String ] -> String -> Property NoInfo
+createDockerInterface bridgeIfaceName ifaceName allIps myIp =
+  interfaceFile `File.hasContent` [ "auto " ++ ifaceName ++ "=" ++ ifaceName
+                                  , "iface " ++ ifaceName ++ " inet static"
+                                  , "    address " ++ dockerAddress
+                                  , "    network 172.17.0.0"
+                                  , "    netmask 255.255.0.0"
+                                  , "    bridge_ports " ++ bridgeIfaceName
+                                  , "    mtu 1462"
+                                  ]
+  where
+    interfaceFile = Net.interfaceDFile ifaceName
+    Just myIndex  = myIp `elemIndex` allIps
+    dockerAddress = "172.17.0." ++ show (myIndex + 1)
+
+configureDockerDefaults :: [ String ] -> String -> String -> Property NoInfo
+configureDockerDefaults allIps myIp dockerIfaceName  =
+  dockerDefaultFile `File.hasContent` [ "BRIDGE=" ++ dockerIfaceName
+                                      , "CIDR=" ++ dockerNetworkRange
+                                      , "wait_ip() {"
+                                      , "  address=$(ip add show $BRIDGE | grep 'inet ' | awk '{print $2}')"
+                                      , "  [ -z \"$address\" ] && sleep $1 || :"
+                                      , "}"
+                                      , "wait_ip 5"
+                                      , "wait_ip 15"
+                                      , "DOCKER_OPTS=\""
+                                      , "    -H unix:///var/run/docker.sock"
+                                      , "    -H tcp://0.0.0.0:2375"
+                                      , "    --fixed-cidr=$CIDR"
+                                      , "    --bridge $BRIDGE"
+                                      , "    --mtu 1462"
+                                      , "\""
+                                      ]
+  where
+    dockerDefaultFile = "/etc/default/docker"
+    Just myIndex  = myIp `elemIndex` allIps
+    dockerNetworkRange = "172.17." ++ show (myIndex + 2) ++ ".0/24"
 
 noninteractiveEnv :: [(String, String)]
 noninteractiveEnv = [ ("DEBIAN_FRONTEND", "noninteractive")
