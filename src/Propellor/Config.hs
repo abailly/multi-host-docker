@@ -51,8 +51,8 @@ installOpenVSwitch =
   (runDpkg debs)
   `describe` "installing openvswitch from local packages"
   where
-    debs = [ "-i", "openvswitch-common_2.3.1-1_amd64.deb",  "openvswitch-switch_2.3.1-1_amd64.deb" ]
-    runDpkg debs = cmdPropertyEnv "dpkg" debs noninteractiveEnv
+    debs = [ "openvswitch-common_2.3.1-1_amd64.deb",  "openvswitch-switch_2.3.1-1_amd64.deb" ]
+    runDpkg debs = cmdPropertyEnv "dpkg" ("-i" : debs) noninteractiveEnv
 
 createInterfaces :: [String] -> String -> Property NoInfo
 createInterfaces allIps myIp = propertyList "configuring network interfaces"
