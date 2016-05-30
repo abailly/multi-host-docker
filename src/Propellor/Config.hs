@@ -8,7 +8,7 @@ import           Control.Monad.Trans.Free
 import           Data.Either
 import           Data.Functor.Coproduct
 import           Data.IP
-import           Data.List                    ((\\))
+import           Data.List                    (intersperse, (\\))
 import           Data.Maybe
 import           Network.DO.Commands
 import           Network.DO.Droplets.Commands
@@ -23,6 +23,7 @@ import qualified Propellor.Docker             as Docker
 import qualified Propellor.Locale             as Locale
 import qualified Propellor.Property.Apt       as Apt
 import qualified Propellor.Property.Cmd       as Cmd
+import qualified Propellor.Property.File      as File
 import qualified Propellor.Property.Network   as Net
 import           Propellor.Spin
 import           System.Directory             (doesFileExist)
@@ -60,7 +61,22 @@ createInterfaces allIps myIp = propertyList "configuring network interfaces"
   ]
 
 createOVSBridgeInterface :: String -> Int -> Property NoInfo
-createOVSBridgeInterface ifaceName numberOfGREs = undefined
+createOVSBridgeInterface ifaceName numberOfGREs = hasInterfaceFile `describe` description `requires` Net.interfacesDEnabled
+  where
+    description = "setup interface " ++ ifaceName ++ " with " ++ show numberOfGREs ++ " tunnels"
+
+    interfaceFile = Net.interfaceDFile ifaceName
+
+    listOfGREs = concat $ intersperse " " $ map (\ i -> "gre" ++ show i) [1 .. numberOfGREs ]
+
+    hasInterfaceFile = interfaceFile `File.hasContent` [ "auto " ++ ifaceName ++  "=" ++ ifaceName
+                                                       , "allow-ovs "++ ifaceName
+                                                       , "iface " ++ ifaceName ++ " inet manual"
+                                                       , "    ovs_type OVSBridge"
+                                                       , "    ovs_ports " ++ listOfGREs
+                                                       , "    ovs_extra set bridge ${IFACE} stp_enable=true"
+                                                       , "    mtu 1462"
+                                                       ]
 
 createGREInterfaces :: [ String ] -> Property NoInfo
 createGREInterfaces otherIps = undefined
