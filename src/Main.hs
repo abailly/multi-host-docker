@@ -13,7 +13,8 @@ import qualified Data.ByteString              as BS
 import           Data.Either
 import           Data.Functor.Coproduct
 import           Data.IP
-import           Data.List                    (intercalate, isSuffixOf)
+import           Data.List                    (intercalate, intersperse,
+                                               isSuffixOf, (\\))
 import           Data.Maybe
 import           Network.DO.Commands
 import           Network.DO.Droplets.Commands
@@ -47,7 +48,8 @@ data Actions = CreateDroplets { numberOfDroplets :: Int
                               , executable       :: Maybe String   -- default is 'propell'
                               , sourceDir        :: Maybe FilePath -- default is '.'
                               }
-             | RunPropellor { executable :: Maybe String  -- default is 'propell'
+             | RunPropellor { allHosts   :: [ HostName ]
+                            , executable :: Maybe String  -- default is 'propell'
                             , hostname   ::  HostName
                             }
              | BuildPropellor { sourceDir  :: Maybe FilePath -- default is '.'
@@ -71,7 +73,7 @@ main = do
       when deploy $ void $ configureHosts (rights hosts)
 
       print hosts
-    go (RunPropellor exe h) = void $ runPropellor exe h
+    go (RunPropellor allHosts exe h) = void $ runPropellor allHosts exe h
     go (BuildPropellor src tgt) = void $ buildInDocker src tgt
     go BuildOpenVSwitch = void $ buildOpenVSwitch
 
@@ -91,23 +93,25 @@ createHostsOnDO userKey n = do
 
 configureHosts :: [Droplet] -> IO [Droplet]
 configureHosts droplets = do
-  mapM (runPropellor $ Just "propell") hosts
+  mapM (runPropellor hosts $ Just "propell") hosts
   return droplets
   where
     hosts      = configured droplets
     configured = map show . catMaybes . map publicIP
 
-runPropellor :: Maybe String -> HostName -> IO ()
-runPropellor Nothing          h = runPropellor (Just "propell") h
-runPropellor (Just configExe) h = do
+runPropellor :: [ HostName ] -> Maybe String -> HostName -> IO ()
+runPropellor allHosts Nothing          h = runPropellor allHosts (Just "propell") h
+runPropellor allHosts (Just configExe) h = do
   unlessM (trySsh h 10) $ fail $ "cannot ssh into host " ++ h ++ " after 10s"
   uploadOpenVSwitch ["openvswitch-common_2.3.1-1_amd64.deb",  "openvswitch-switch_2.3.1-1_amd64.deb"] h
   callProcess "scp" [ "-o","StrictHostKeyChecking=no", configExe, "root@" ++ h ++ ":" ]
   callProcess "ssh" [ "-o","StrictHostKeyChecking=no", "root@" ++ h, runRemotePropellCmd h ]
     where
       runRemotePropellCmd h = shellWrap $ intercalate " && " [ "chmod +x " ++ configExe
-                                                             , "./" ++ configExe ++ " " ++ h
+                                                             , "./" ++ configExe ++ " " ++ h ++ " " ++ otherHosts
                                                              ]
+      otherHosts = concat $ intersperse " " (allHosts \\ [h])
+
       trySsh :: HostName -> Int -> IO Bool
       trySsh h n = do
         res <- boolSystem "ssh" (map Param $ [ "-o","StrictHostKeyChecking=no", "root@" ++ h, "echo hello" ])

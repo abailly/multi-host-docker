@@ -18,7 +18,7 @@ import           Network.DO.Pairing
 import           Network.DO.Types
 import           Network.REST
 import           Propellor                    hiding (Result)
-import           Propellor.Base
+import           Propellor.Base               hiding (head)
 import qualified Propellor.Docker             as Docker
 import qualified Propellor.Locale             as Locale
 import qualified Propellor.Property.Apt       as Apt
@@ -34,15 +34,17 @@ import           System.Process               (callCommand)
 
 -- | Configure a single host to run docker with a custom network configuration using GRE tunnels
 -- and openvswitch to route packets across nodes
-multiNetworkDockerHost :: [String] -> String -> Property HasInfo
-multiNetworkDockerHost hosts ip = propertyList "configuring host for multi-network docker" $ props
+multiNetworkDockerHost :: [String] -> Property HasInfo
+multiNetworkDockerHost allIps = propertyList ("configuring host " ++ myIp ++ " for multi-network docker") $ props
   & Locale.setDefaultLocale Locale.en_us_UTF_8
   & Docker.installLatestDocker
   & Apt.installed [ "bridge-utils" ]
   -- Assumes .deb are available in current directory
   & installOpenVSwitch
   -- Creates network interfaces
-  & createInterfaces hosts ip
+  & createInterfaces allIps myIp
+  where
+    myIp = head allIps
 
 installOpenVSwitch :: Property NoInfo
 installOpenVSwitch =
@@ -50,13 +52,13 @@ installOpenVSwitch =
   (runDpkg debs)
   `describe` "installing openvswitch"
   where
-    debs = [ "openvswitch-common_2.3.1-1_amd64.deb",  "openvswitch-switch_2.3.1-1_amd64.deb" ]
-    runDpkg debs = cmdPropertyEnv "dpkg -i" debs noninteractiveEnv
+    debs = [ "-i", "openvswitch-common_2.3.1-1_amd64.deb",  "openvswitch-switch_2.3.1-1_amd64.deb" ]
+    runDpkg debs = cmdPropertyEnv "dpkg" debs noninteractiveEnv
 
 createInterfaces :: [String] -> String -> Property NoInfo
 createInterfaces allIps myIp = propertyList "configuring network interfaces"
   [ createOVSBridgeInterface "br0" (length allIps - 1)
-  , createGREInterfaces (allIps \\ [ myIp])
+  , createGREInterfaces "br0" (allIps \\ [ myIp])
   , createDockerInterface "docker0" allIps myIp
   ]
 
@@ -78,17 +80,29 @@ createOVSBridgeInterface ifaceName numberOfGREs = hasInterfaceFile `describe` de
                                                        , "    mtu 1462"
                                                        ]
 
-createGREInterfaces :: [ String ] -> Property NoInfo
-createGREInterfaces otherIps = undefined
+createGREInterfaces :: String -> [ String ] -> Property NoInfo
+createGREInterfaces bridgeIfaceName otherIps = propertyList ("Configuring " ++ show numberOfIfaces ++ " GRE interfaces") $
+  map (uncurry createGREInterface) (zip otherIps [1 .. numberOfIfaces ])
+  where
+    numberOfIfaces = length otherIps
+    createGREInterface ip num = interfaceFile `File.hasContent` [ "allow-"++ bridgeIfaceName ++ " " ++ greName
+                                                                , "iface " ++ greName ++ " inet manual"
+                                                                , "    ovs_type OVSPort"
+                                                                , "    ovs_bridge " ++ bridgeIfaceName
+                                                                , "    ovs_extra set interface ${IFACE} type=gre options:remote_ip=" ++ ip
+                                                                ]
+      where
+        greName = "gre" ++ show num
+        interfaceFile = Net.interfaceDFile greName
+
 
 createDockerInterface :: String -> [ String ] -> String -> Property NoInfo
 createDockerInterface ifaceName allIps myIp = undefined
 
 noninteractiveEnv :: [(String, String)]
-noninteractiveEnv =
-		[ ("DEBIAN_FRONTEND", "noninteractive")
-		, ("APT_LISTCHANGES_FRONTEND", "none")
-		]
+noninteractiveEnv = [ ("DEBIAN_FRONTEND", "noninteractive")
+                    , ("APT_LISTCHANGES_FRONTEND", "none")
+                    ]
 
 root :: User
 root = User "root"

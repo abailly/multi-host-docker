@@ -7,6 +7,6 @@ import           System.Environment
 
 main :: IO ()
 main = do
-  [ ip ] <- getArgs
-  let toConfigure = host ip & multiNetworkDockerHost ip
+  ips <- getArgs   -- assume first IP given is own ip
+  let toConfigure = host (head ips) & multiNetworkDockerHost ips
   mainProperties toConfigure
