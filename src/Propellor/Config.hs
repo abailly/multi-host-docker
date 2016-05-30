@@ -57,7 +57,7 @@ installOpenVSwitch =
 createInterfaces :: [String] -> String -> Property NoInfo
 createInterfaces allIps myIp = propertyList "configuring network interfaces"
   [ createOVSBridgeInterface "br0" (length allIps - 1)
-  , createGREInterfaces "br0" (allIps \\ [ myIp])
+  , createGREInterfaces "br0" allIps myIp
   , createDockerInterface "br0" "docker0" allIps myIp
   ]
 
@@ -79,11 +79,11 @@ createOVSBridgeInterface ifaceName numberOfGREs = hasInterfaceFile `describe` de
                                                        , "    mtu 1462"
                                                        ]
 
-createGREInterfaces :: String -> [ String ] -> Property NoInfo
-createGREInterfaces bridgeIfaceName otherIps = propertyList ("Configuring " ++ show numberOfIfaces ++ " GRE interfaces") $
-  map (uncurry createGREInterface) (zip otherIps [1 .. numberOfIfaces ])
+createGREInterfaces :: String -> [ String ] -> String -> Property NoInfo
+createGREInterfaces bridgeIfaceName allIps myIp = propertyList ("Configuring " ++ show numberOfIfaces ++ " GRE interfaces") $
+  map (uncurry createGREInterface) $ filter ((/= myIp) . fst) (zip allIps [1 .. numberOfIfaces ])
   where
-    numberOfIfaces = length otherIps
+    numberOfIfaces = length allIps
     createGREInterface ip num = interfaceFile `File.hasContent` [ "allow-"++ bridgeIfaceName ++ " " ++ greName
                                                                 , "iface " ++ greName ++ " inet manual"
                                                                 , "    ovs_type OVSPort"
