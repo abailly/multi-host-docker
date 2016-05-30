@@ -43,14 +43,14 @@ data Actions = CreateDroplets { numberOfDroplets :: Int
                               , userKey          :: Int
                               , compilePropellor :: Bool
                               , deployPropellor  :: Bool
-                              , executable       :: String
-                              , sourceDir        :: FilePath
+                              , executable       :: Maybe String   -- default is 'propell'
+                              , sourceDir        :: Maybe FilePath -- default is '.'
                               }
-             | RunPropellor { executable :: String
-                            , hostname   :: HostName
+             | RunPropellor { executable :: Maybe String  -- default is 'propell'
+                            , hostname   ::  HostName
                             }
-             | BuildPropellor { sourceDir  :: FilePath
-                              , targetName :: String
+             | BuildPropellor { sourceDir  :: Maybe FilePath -- default is '.'
+                              , targetName :: Maybe String   -- default is 'propell'
                               }
              deriving (Show, Generic)
 
@@ -88,13 +88,14 @@ createHostsOnDO userKey n = do
 
 configureHosts :: [Droplet] -> IO [Droplet]
 configureHosts droplets = do
-  mapM (runPropellor "propell") $ configured droplets
+  mapM (runPropellor $ Just "propell") $ configured droplets
   return droplets
   where
     configured = map show . catMaybes . map publicIP
 
-runPropellor :: String -> HostName -> IO Bool
-runPropellor configExe h = do
+runPropellor :: Maybe String -> HostName -> IO Bool
+runPropellor Nothing          h = runPropellor (Just "propell") h
+runPropellor (Just configExe) h = do
   canSsh <- trySsh h 3
   when (not canSsh) $ fail $ "cannot ssh into host " ++ h
   copied <- boolSystem "scp" (map Param $ [ "-o","StrictHostKeyChecking=no", configExe, "root@" ++ h ++ ":" ])
@@ -121,8 +122,11 @@ copy hIn hOut = do
     then BS.hPut hOut bs >> copy hIn hOut
     else return ()
 
-buildInDocker :: FilePath -> String -> IO FilePath
-buildInDocker srcDir targetName = do
+buildInDocker :: Maybe FilePath -> Maybe String -> IO FilePath
+buildInDocker Nothing        Nothing          = buildInDocker (Just ".") (Just "propell")
+buildInDocker Nothing       (Just exe)        = buildInDocker (Just ".") (Just exe)
+buildInDocker (Just src)     Nothing          = buildInDocker (Just src) (Just "propell")
+buildInDocker (Just srcDir) (Just targetName) = do
   absSrcDir <- canonicalizePath srcDir
   removeFileIfExists ".cidfile"
   (_,_,_,hdl) <- createProcess $ proc "docker" ["run", "--cidfile=.cidfile", "-v", absSrcDir ++ ":/build", "-w", "/build" , "haskell:7.10.3","stack", "build","--allow-different-user", ":" ++ targetName ]
