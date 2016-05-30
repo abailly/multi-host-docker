@@ -13,7 +13,7 @@ import qualified Data.ByteString              as BS
 import           Data.Either
 import           Data.Functor.Coproduct
 import           Data.IP
-import           Data.List                    (intercalate)
+import           Data.List                    (intercalate, isSuffixOf)
 import           Data.Maybe
 import           Network.DO.Commands
 import           Network.DO.Droplets.Commands
@@ -37,7 +37,8 @@ import           System.IO
 import           System.IO.Error              (isDoesNotExistError)
 import           System.Process               (CreateProcess (..),
                                                StdStream (..), callCommand,
-                                               createProcess, proc, readProcess)
+                                               callProcess, createProcess, proc,
+                                               readProcess)
 
 data Actions = CreateDroplets { numberOfDroplets :: Int
                               , userKey          :: Int
@@ -52,6 +53,7 @@ data Actions = CreateDroplets { numberOfDroplets :: Int
              | BuildPropellor { sourceDir  :: Maybe FilePath -- default is '.'
                               , targetName :: Maybe String   -- default is 'propell'
                               }
+             | BuildOpenVSwitch
              deriving (Show, Generic)
 
 instance ParseRecord Actions
@@ -71,6 +73,7 @@ main = do
       print hosts
     go (RunPropellor exe h) = void $ runPropellor exe h
     go (BuildPropellor src tgt) = void $ buildInDocker src tgt
+    go BuildOpenVSwitch = void $ buildOpenVSwitch
 
 createHostsOnDO :: Int -> Int -> IO [ Result Droplet ]
 createHostsOnDO userKey n = do
@@ -88,20 +91,19 @@ createHostsOnDO userKey n = do
 
 configureHosts :: [Droplet] -> IO [Droplet]
 configureHosts droplets = do
-  mapM (runPropellor $ Just "propell") $ configured droplets
+  mapM (runPropellor $ Just "propell") hosts
   return droplets
   where
+    hosts      = configured droplets
     configured = map show . catMaybes . map publicIP
 
-runPropellor :: Maybe String -> HostName -> IO Bool
+runPropellor :: Maybe String -> HostName -> IO ()
 runPropellor Nothing          h = runPropellor (Just "propell") h
 runPropellor (Just configExe) h = do
-  canSsh <- trySsh h 3
-  when (not canSsh) $ fail $ "cannot ssh into host " ++ h
-  copied <- boolSystem "scp" (map Param $ [ "-o","StrictHostKeyChecking=no", configExe, "root@" ++ h ++ ":" ])
-  if copied
-    then boolSystem "ssh" (map Param $ [  "-o","StrictHostKeyChecking=no", "root@" ++ h, runRemotePropellCmd h ])
-    else fail $ "failed to copy " ++ configExe ++ " to remote host " ++ h
+  unlessM (trySsh h 3) $ fail $ "cannot ssh into host " ++ h
+  uploadOpenVSwitch ["openvswitch-common_2.3.1-1_amd64.deb",  "openvswitch-switch_2.3.1-1_amd64.deb"] h
+  callProcess "scp" [ "-o","StrictHostKeyChecking=no", configExe, "root@" ++ h ++ ":" ]
+  callProcess "ssh" [ "-o","StrictHostKeyChecking=no", "root@" ++ h, runRemotePropellCmd h ]
     where
       runRemotePropellCmd h = shellWrap $ intercalate " && " [ "chmod +x " ++ configExe
                                                              , "./" ++ configExe ++ " " ++ h
@@ -114,6 +116,11 @@ runPropellor (Just configExe) h = do
             threadDelay 1000000
             trySsh h (n - 1)
           else return res
+
+unlessM :: (Monad m) => m Bool -> m () -> m ()
+unlessM test ifFail = do
+  result <- test
+  when (not result) $ ifFail
 
 copy :: Handle -> Handle -> IO ()
 copy hIn hOut = do
@@ -140,11 +147,29 @@ buildInDocker (Just srcDir) (Just targetName) = do
         exist <- doesFileExist fp
         when exist $ removeFile fp
 
+buildOpenVSwitch :: IO [ FilePath ]
+buildOpenVSwitch = do
+  callProcess "docker" ["build", "-t", imageName, "openvswitch" ]
+  debs <- filter (".deb" `isSuffixOf`) . lines <$> readProcess "docker" [ "run", "--rm", imageName, "ls",  "-1", "/" ] ""
+  localDebs <- forM debs extractPackage
+  return localDebs
+    where
+      imageName = "openvswitch:2.3.1"
+
+      extractPackage deb = do
+        (_, Just hout, _, phdl) <- createProcess  (proc "docker" [ "run", "--rm", imageName, "dd", "if=/" ++ deb ]) { std_out = CreatePipe }
+        withBinaryFile deb WriteMode $ \ hDst -> copy hout hDst
+        void $ waitForProcess phdl
+        return deb
+
+uploadOpenVSwitch :: [ FilePath ] -> String -> IO ()
+uploadOpenVSwitch debs host = forM_ debs $ \ deb -> callProcess "scp" [ "-o","StrictHostKeyChecking=no", deb, "root@" ++ host ++ ":" ]
+
 exportBinary :: String -> IO FilePath
 exportBinary targetName = do
   cid <- readFile ".cidfile"
-  stackRoot <- filter (/= '\n') <$> readProcess "docker" [ "run", "--volumes-from=" ++ cid,  "-w", "/build", "haskell:7.10.3", "stack", "path",  "--allow-different-user", "--local-install-root" ] ""
-  (_, Just hout, _, phdl) <- createProcess $ (proc "docker" ["run", "--volumes-from=" ++ cid, "busybox","dd", "if=" ++ stackRoot ++ "/bin/" ++ targetName ]) { std_out = CreatePipe }
+  stackRoot <- filter (/= '\n') <$> readProcess "docker" [ "run", "--rm", "--volumes-from=" ++ cid,  "-w", "/build", "haskell:7.10.3", "stack", "path",  "--allow-different-user", "--local-install-root" ] ""
+  (_, Just hout, _, phdl) <- createProcess $ (proc "docker" ["run", "--rm", "--volumes-from=" ++ cid, "busybox","dd", "if=" ++ stackRoot ++ "/bin/" ++ targetName ]) { std_out = CreatePipe }
   withBinaryFile targetName WriteMode $ \ hDst -> copy hout hDst
   void $ waitForProcess phdl
   return targetName
