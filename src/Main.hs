@@ -12,9 +12,8 @@ import           Control.Monad.Trans.Free
 import qualified Data.ByteString              as BS
 import           Data.Either
 import           Data.Functor.Coproduct
-import           Data.IP
 import           Data.List                    (intercalate, intersperse,
-                                               isSuffixOf, (\\))
+                                               isSuffixOf)
 import           Data.Maybe
 import           Network.DO.Commands
 import           Network.DO.Droplets.Commands
@@ -25,11 +24,6 @@ import           Network.DO.Types
 import           Network.REST
 import           Options.Generic
 import           Propellor                    hiding (Result, createProcess)
-import           Propellor.Config
-import qualified Propellor.Docker             as Docker
-import qualified Propellor.Locale             as Locale
-import qualified Propellor.Property.Cmd       as Cmd
-import           Propellor.Spin
 import           Propellor.Utilities          (shellWrap)
 import           System.Directory
 import           System.Environment
@@ -37,29 +31,9 @@ import           System.Exit
 import           System.IO
 import           System.IO.Error              (isDoesNotExistError)
 import           System.Process               (CreateProcess (..),
-                                               StdStream (..), callCommand,
-                                               callProcess, createProcess, proc,
-                                               readProcess)
-
-data Actions = CreateDroplets { numberOfDroplets :: Int
-                              , userKey          :: Int
-                              , compilePropellor :: Bool
-                              , deployPropellor  :: Bool
-                              , executable       :: Maybe String   -- default is 'propell'
-                              , sourceDir        :: Maybe FilePath -- default is '.'
-                              }
-             | RunPropellor { allHosts   :: [ HostName ]
-                            , executable :: Maybe String  -- default is 'propell'
-                            , hostname   ::  HostName
-                            }
-             | BuildPropellor { sourceDir  :: Maybe FilePath -- default is '.'
-                              , targetName :: Maybe String   -- default is 'propell'
-                              }
-             | BuildOpenVSwitch
-             deriving (Show, Generic)
-
-instance ParseRecord Actions
-
+                                               StdStream (..), callProcess,
+                                               createProcess, proc, readProcess)
+import           Types
 main :: IO ()
 main = do
   action <- getRecord "Multi-host docker networking"
