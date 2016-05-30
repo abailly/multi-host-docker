@@ -100,7 +100,7 @@ configureHosts droplets = do
 runPropellor :: Maybe String -> HostName -> IO ()
 runPropellor Nothing          h = runPropellor (Just "propell") h
 runPropellor (Just configExe) h = do
-  unlessM (trySsh h 3) $ fail $ "cannot ssh into host " ++ h
+  unlessM (trySsh h 10) $ fail $ "cannot ssh into host " ++ h ++ " after 10s"
   uploadOpenVSwitch ["openvswitch-common_2.3.1-1_amd64.deb",  "openvswitch-switch_2.3.1-1_amd64.deb"] h
   callProcess "scp" [ "-o","StrictHostKeyChecking=no", configExe, "root@" ++ h ++ ":" ]
   callProcess "ssh" [ "-o","StrictHostKeyChecking=no", "root@" ++ h, runRemotePropellCmd h ]
@@ -135,17 +135,17 @@ buildInDocker Nothing       (Just exe)        = buildInDocker (Just ".") (Just e
 buildInDocker (Just src)     Nothing          = buildInDocker (Just src) (Just "propell")
 buildInDocker (Just srcDir) (Just targetName) = do
   absSrcDir <- canonicalizePath srcDir
-  removeFileIfExists ".cidfile"
-  (_,_,_,hdl) <- createProcess $ proc "docker" ["run", "--cidfile=.cidfile", "-v", absSrcDir ++ ":/build", "-w", "/build" , "haskell:7.10.3","stack", "build","--allow-different-user", ":" ++ targetName ]
-  exitCode <- waitForProcess hdl
-  case exitCode of
-    ExitSuccess      -> exportBinary targetName
-    ExitFailure code -> fail $ "failed to build correctly " ++ targetName ++ " in directory " ++ srcDir ++ ": " ++ show code
+  buildAlreadyRun <- doesFileExist ".cidfile"
+  if buildAlreadyRun
+    then do
+    cid <- readFile ".cidfile"
+    removeFile ".cidfile"
+    callProcess "docker" ["run", "--cidfile=.cidfile", "-v", absSrcDir ++ ":/build", "--volumes-from=" ++ cid,
+                          "-v", "/root/.stack", "-w", "/build" , "haskell:7.10.3","stack", "build","--allow-different-user", ":" ++ targetName ]
+    else callProcess "docker" ["run", "--cidfile=.cidfile", "-v", absSrcDir ++ ":/build",
+                               "-v", "/root/.stack", "-w", "/build" , "haskell:7.10.3","stack", "build","--allow-different-user", ":" ++ targetName ]
 
-    where
-      removeFileIfExists fp = do
-        exist <- doesFileExist fp
-        when exist $ removeFile fp
+  exportBinary targetName
 
 buildOpenVSwitch :: IO [ FilePath ]
 buildOpenVSwitch = do
