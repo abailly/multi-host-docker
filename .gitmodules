@@ -1,3 +1,6 @@
 [submodule "propellor"]
 	path = propellor
 	url = git@github.com:abailly/propellor.git
+[submodule "system-extra"]
+	path = system-extra
+	url = git@github.com:abailly/system-extra.git
