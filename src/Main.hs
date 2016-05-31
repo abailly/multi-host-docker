@@ -9,7 +9,6 @@ import           Control.Concurrent.Async
 import           Control.Exception            (catch, throw)
 import           Control.Monad
 import           Control.Monad.Trans.Free
-import qualified Data.ByteString              as BS
 import           Data.Either
 import           Data.Functor.Coproduct
 import           Data.List                    (intercalate, intersperse,
@@ -25,15 +24,18 @@ import           Network.REST
 import           Options.Generic
 import           Propellor                    hiding (Result, createProcess)
 import           Propellor.Utilities          (shellWrap)
-import           System.Directory
+import           System.Build
+import           System.Docker
 import           System.Environment
 import           System.Exit
 import           System.IO
 import           System.IO.Error              (isDoesNotExistError)
+import           System.IO.Extra              (copy)
 import           System.Process               (CreateProcess (..),
                                                StdStream (..), callProcess,
                                                createProcess, proc, readProcess)
 import           Types
+
 main :: IO ()
 main = do
   action <- getRecord "Multi-host docker networking"
@@ -100,30 +102,11 @@ unlessM test ifFail = do
   result <- test
   when (not result) $ ifFail
 
-copy :: Handle -> Handle -> IO ()
-copy hIn hOut = do
-  bs <- BS.hGet hIn 4096
-  if not (BS.null bs)
-    then BS.hPut hOut bs >> copy hIn hOut
-    else return ()
-
 buildInDocker :: Maybe FilePath -> Maybe String -> IO FilePath
 buildInDocker Nothing        Nothing          = buildInDocker (Just ".") (Just "propell")
 buildInDocker Nothing       (Just exe)        = buildInDocker (Just ".") (Just exe)
 buildInDocker (Just src)     Nothing          = buildInDocker (Just src) (Just "propell")
-buildInDocker (Just srcDir) (Just targetName) = do
-  absSrcDir <- canonicalizePath srcDir
-  buildAlreadyRun <- doesFileExist ".cidfile"
-  if buildAlreadyRun
-    then do
-    cid <- readFile ".cidfile"
-    removeFile ".cidfile"
-    callProcess "docker" ["run", "--cidfile=.cidfile", "-v", absSrcDir ++ ":/build", "--volumes-from=" ++ cid,
-                          "-v", "/root/.stack", "-w", "/build" , "haskell:7.10.3","stack", "build","--allow-different-user", ":" ++ targetName ]
-    else callProcess "docker" ["run", "--cidfile=.cidfile", "-v", absSrcDir ++ ":/build",
-                               "-v", "/root/.stack", "-w", "/build" , "haskell:7.10.3","stack", "build","--allow-different-user", ":" ++ targetName ]
-
-  exportBinary targetName
+buildInDocker (Just srcDir) (Just targetName) = stackInDocker (ImageName "ghc-centos") srcDir targetName
 
 buildOpenVSwitch :: IO [ FilePath ]
 buildOpenVSwitch = do
@@ -142,13 +125,4 @@ buildOpenVSwitch = do
 
 uploadOpenVSwitch :: [ FilePath ] -> String -> IO ()
 uploadOpenVSwitch debs host = forM_ debs $ \ deb -> callProcess "scp" [ "-o","StrictHostKeyChecking=no", deb, "root@" ++ host ++ ":" ]
-
-exportBinary :: String -> IO FilePath
-exportBinary targetName = do
-  cid <- readFile ".cidfile"
-  stackRoot <- filter (/= '\n') <$> readProcess "docker" [ "run", "--rm", "--volumes-from=" ++ cid,  "-w", "/build", "haskell:7.10.3", "stack", "path",  "--allow-different-user", "--local-install-root" ] ""
-  (_, Just hout, _, phdl) <- createProcess $ (proc "docker" ["run", "--rm", "--volumes-from=" ++ cid, "busybox","dd", "if=" ++ stackRoot ++ "/bin/" ++ targetName ]) { std_out = CreatePipe }
-  withBinaryFile targetName WriteMode $ \ hDst -> copy hout hDst
-  void $ waitForProcess phdl
-  return targetName
 
