@@ -8,7 +8,16 @@ import           System.IO
 import           System.IO.Extra
 import           System.Process
 
--- | Build a Haskell project using some docker image
+-- | Build a Haskell project using some docker image.
+--
+-- In order to maximize reuse, this process creates in the current directory a file called `.cidfile` which contains
+-- the id of the latest container that ran the build. When this file exists, the next run will reuse the volumes of
+-- the previous run which means built dependencies will normally be available.
+--
+-- The built target, which is assumed to be a binary executable, is then extracted from the container and copied
+-- locally in a file called `targetName`.
+--
+-- TODO: run with current user in the container or reuse stack's docker capabilities
 stackInDocker :: ImageName -> FilePath -> String -> IO FilePath
 stackInDocker img@(ImageName imgName) srcDir targetName = do
   absSrcDir <- canonicalizePath srcDir
