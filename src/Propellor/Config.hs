@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeOperators #-}
 module Propellor.Config where
 
 
@@ -34,7 +35,7 @@ import           System.Process               (callCommand)
 
 -- | Configure a single host to run docker with a custom network configuration using GRE tunnels
 -- and openvswitch to route packets across nodes
-multiNetworkDockerHost :: [String] -> String -> Property HasInfo
+multiNetworkDockerHost :: [String] -> String -> Property DebianLike
 multiNetworkDockerHost allIps myIp = propertyList ("configuring host " ++ myIp ++ " for multi-network docker") $ props
   & Locale.setDefaultLocale Locale.en_us_UTF_8
   & Docker.installLatestDocker
@@ -45,23 +46,25 @@ multiNetworkDockerHost allIps myIp = propertyList ("configuring host " ++ myIp +
   & createInterfaces allIps myIp
   & configureDockerDefaults allIps myIp "docker0"
 
-installOpenVSwitch :: Property NoInfo
+installOpenVSwitch :: Property DebianLike
 installOpenVSwitch =
   check (and <$> mapM doesFileExist debs)
   (runDpkg debs)
   `describe` "installing openvswitch from local packages"
   where
     debs = [ "openvswitch-common_2.3.1-1_amd64.deb",  "openvswitch-switch_2.3.1-1_amd64.deb" ]
-    runDpkg debs = cmdPropertyEnv "dpkg" ("-i" : debs) noninteractiveEnv
 
-createInterfaces :: [String] -> String -> Property NoInfo
-createInterfaces allIps myIp = propertyList "configuring network interfaces"
-  [ createOVSBridgeInterface "br0" allIps myIp
-  , createGREInterfaces "br0" allIps myIp
-  , createDockerInterface "br0" "docker0" allIps myIp
-  ]
+    runDpkg :: [ String ] -> Property DebianLike
+    runDpkg debs = requires (Apt.installed [ "dpkg" ]) $ cmdPropertyEnv "dpkg" ("-i" : debs) noninteractiveEnv `assume` MadeChange
 
-createOVSBridgeInterface :: String -> [ String ] -> String -> Property NoInfo
+createInterfaces :: [String] -> String -> Property DebianLike
+createInterfaces allIps myIp = propertyList "configuring network interfaces" $ props 
+  & createOVSBridgeInterface "br0" allIps myIp
+  & createGREInterfaces "br0" allIps myIp
+  & createDockerInterface "br0" "docker0" allIps myIp
+
+
+createOVSBridgeInterface :: String -> [ String ] -> String -> Property DebianLike
 createOVSBridgeInterface ifaceName allIps myIp = hasInterfaceFile `describe` description `requires` Net.interfacesDEnabled
   where
     description = "setup interface " ++ ifaceName ++ " with " ++ show (length $ listOfGREs) ++ " tunnels"
@@ -70,6 +73,7 @@ createOVSBridgeInterface ifaceName allIps myIp = hasInterfaceFile `describe` des
 
     listOfGREs = map snd $ greInterfaces allIps myIp
 
+    hasInterfaceFile :: Property UnixLike
     hasInterfaceFile = interfaceFile `File.hasContent` [ "auto " ++ ifaceName ++  "=" ++ ifaceName
                                                        , "allow-ovs "++ ifaceName
                                                        , "iface " ++ ifaceName ++ " inet manual"
@@ -79,8 +83,8 @@ createOVSBridgeInterface ifaceName allIps myIp = hasInterfaceFile `describe` des
                                                        , "    mtu 1462"
                                                        ]
 
-createGREInterfaces :: String -> [ String ] -> String -> Property NoInfo
-createGREInterfaces bridgeIfaceName allIps myIp = propertyList ("Configuring " ++ show (length allIps) ++ " GRE interfaces") $
+createGREInterfaces :: String -> [ String ] -> String -> Property UnixLike
+createGREInterfaces bridgeIfaceName allIps myIp = propertyList ("Configuring " ++ show (length allIps) ++ " GRE interfaces") $ toProps $ 
   map (uncurry createGREInterface) (greInterfaces allIps myIp)
   where
     createGREInterface ip greName = interfaceFile `File.hasContent` [ "allow-"++ bridgeIfaceName ++ " " ++ greName
@@ -112,7 +116,7 @@ greInterfaces allIps myIp = map keepToAndNumber $ filter (linksToMyIp . snd) all
     allPossibleInterfaces = zip [ 1 .. ] allPairs
     allPairs = [ (from, to) | from <- allIps, to <- Prelude.tail $ dropWhile (/= from) allIps ]
 
-createDockerInterface :: String -> String -> [ String ] -> String -> Property NoInfo
+createDockerInterface :: String -> String -> [ String ] -> String -> Property UnixLike
 createDockerInterface bridgeIfaceName ifaceName allIps myIp =
   interfaceFile `File.hasContent` [ "auto " ++ ifaceName ++ "=" ++ ifaceName
                                   , "iface " ++ ifaceName ++ " inet static"
@@ -127,7 +131,7 @@ createDockerInterface bridgeIfaceName ifaceName allIps myIp =
     Just myIndex  = myIp `elemIndex` allIps
     dockerAddress = "172.17.0." ++ show (myIndex + 1)
 
-configureDockerDefaults :: [ String ] -> String -> String -> Property NoInfo
+configureDockerDefaults :: [ String ] -> String -> String -> Property UnixLike
 configureDockerDefaults allIps myIp dockerIfaceName  =
   dockerDefaultFile `File.hasContent` [ "BRIDGE=" ++ dockerIfaceName
                                       , "CIDR=" ++ dockerNetworkRange
