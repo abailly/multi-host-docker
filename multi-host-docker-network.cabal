@@ -19,7 +19,7 @@ executable multi-host-docker-network
   main-is:             Main.hs
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.8 && <4.9
+  build-depends:       base >=4.8 && < 5
                      , async, bytestring, comonad, directory, free, hdo, iproute, optparse-generic, process, propellor
                      , system-extra, unix, unix-compat
   hs-source-dirs:      src
@@ -30,7 +30,7 @@ executable propell
   main-is:             Propell.hs
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.8 && <4.9
+  build-depends:       base >=4.8 && < 5
                      , async, bytestring, comonad, directory, free, hdo, iproute, process, propellor
                      , system-extra, unix, unix-compat
   hs-source-dirs:      src
