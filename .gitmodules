@@ -4,3 +4,6 @@
 [submodule "system-extra"]
 	path = system-extra
 	url = git@github.com:abailly/system-extra.git
+[submodule "hdo"]
+	path = hdo
+	url = https://github.com/capital-match/hdo
