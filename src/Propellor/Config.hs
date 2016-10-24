@@ -7,7 +7,7 @@ import           Control.Exception            (catch, throw)
 import           Control.Monad
 import           Control.Monad.Trans.Free
 import           Data.Either
-import           Data.Functor.Coproduct
+import           Data.Functor.Sum
 import           Data.IP
 import           Data.List                    (elemIndex, intersperse, (\\))
 import           Data.Maybe
